@@ -1,63 +1,156 @@
-import Image from "next/image";
+'use client';
+
+import {useState, useCallback, useEffect} from 'react';
+import {useCamera} from './hooks/useCamera';
+import {useHandTracking} from './hooks/useHandTracking';
+import CameraPanel from './components/CameraPanel';
+import TagalogBuffer from './components/TagalogBuffer';
+import TranslationPanel from './components/TranslationPanel';
+import ReversePanel from './components/ReversePanel';
+import EventLog from './components/EventLog';
+import {EventLogEntry} from './lib/types';
+import {checkHealth} from './lib/api';
 
 export default function Home() {
+  const {videoRef, isActive, error, permissionState, startCamera, stopCamera} =
+    useCamera();
+  const [tokens, setTokens] = useState<string[]>([]);
+  const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
+
+  const addEvent = useCallback((entry: EventLogEntry) => {
+    setEventLog(prev => [...prev, entry]);
+  }, []);
+
+  const handleGestureConfirmed = useCallback(
+    (gesture: {id: string; tagalog: string}) => {
+      setTokens(prev => [...prev, gesture.tagalog]);
+      addEvent({
+        timestamp: Date.now(),
+        type: 'gesture',
+        message: `Confirmed: "${gesture.tagalog}" (${gesture.id})`
+      });
+    },
+    [addEvent]
+  );
+
+  const handleHandDebug = useCallback(
+    (message: string) => {
+      addEvent({timestamp: Date.now(), type: 'input', message});
+    },
+    [addEvent]
+  );
+
+  const {result: handResult, canvasRef} = useHandTracking({
+    videoRef,
+    isActive,
+    onGestureConfirmed: handleGestureConfirmed,
+    onDebug: handleHandDebug
+  });
+
+  const [targetLang, setTargetLang] = useState<'en' | 'tl'>('en');
+  const [backendMode, setBackendMode] = useState<string | null>(null);
+
+  // Check backend health on mount
+  useEffect(() => {
+    checkHealth()
+      .then(h => setBackendMode(h.mode))
+      .catch(() => setBackendMode('offline'));
+  }, []);
+
+  const handleRemoveToken = (index: number) => {
+    setTokens(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleEditToken = (index: number, newValue: string) => {
+    setTokens(prev => prev.map((t, i) => (i === index ? newValue : t)));
+  };
+
+  const handleClearTokens = () => setTokens([]);
+  const handleUndoLast = () => setTokens(prev => prev.slice(0, -1));
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Header */}
+      <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">
+              <span className="text-emerald-400">Sign</span>Bridge
+            </h1>
+            <p className="text-xs text-zinc-500">
+              FSL ↔ Tagalog/English Translator
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                backendMode === 'mock'
+                  ? 'bg-amber-900/50 text-amber-300'
+                  : backendMode === 'gemini'
+                    ? 'bg-emerald-900/50 text-emerald-300'
+                    : 'bg-red-900/50 text-red-300'
+              }`}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  backendMode === 'mock'
+                    ? 'bg-amber-400'
+                    : backendMode === 'gemini'
+                      ? 'bg-emerald-400'
+                      : 'bg-red-400'
+                }`}
+              />
+              {backendMode === 'mock'
+                ? 'Mock Mode'
+                : backendMode === 'gemini'
+                  ? 'Gemini Live'
+                  : backendMode === 'offline'
+                    ? 'Backend Offline'
+                    : 'Connecting...'}
+            </span>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      </header>
+
+      {/* Main Content */}
+      <main className="mx-auto max-w-7xl px-6 py-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Left Column: Camera + Gesture Detection */}
+          <div className="flex flex-col gap-6">
+            <CameraPanel
+              videoRef={videoRef}
+              canvasRef={canvasRef}
+              isActive={isActive}
+              error={error}
+              permissionState={permissionState}
+              gestureLabel={handResult.gestureLabel}
+              confidence={handResult.confidence}
+              onStart={startCamera}
+              onStop={stopCamera}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+            <TagalogBuffer
+              tokens={tokens}
+              onRemoveToken={handleRemoveToken}
+              onEditToken={handleEditToken}
+              onClear={handleClearTokens}
+              onUndoLast={handleUndoLast}
+            />
+          </div>
+
+          {/* Right Column: Translation + Reverse + Log */}
+          <div className="flex flex-col gap-6">
+            <TranslationPanel
+              sourceText={tokens.join(' ')}
+              targetLang={targetLang}
+              onTargetLangChange={setTargetLang}
+              onEventLog={addEvent}
+            />
+
+            <ReversePanel onEventLog={addEvent} />
+
+            <EventLog entries={eventLog} onClear={() => setEventLog([])} />
+          </div>
         </div>
       </main>
     </div>
